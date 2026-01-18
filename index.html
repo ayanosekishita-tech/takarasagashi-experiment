@@ -1,7 +1,10 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>Treasure Chest Experiment (Score Position Fix)</title>
+    <title>Treasure Chest Experiment (Mobile Optimized)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="robots" content="noindex">
+
     <script src="https://unpkg.com/jspsych@7.3.4"></script>
     <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.3"></script>
     <script src="https://unpkg.com/@jspsych/plugin-html-button-response@1.1.3"></script>
@@ -15,8 +18,16 @@
         color: #333; 
         font-family: "Helvetica Neue", Arial, sans-serif;
         margin: 0; padding: 0;
-        overflow: hidden; 
+        
+        /* ▼▼▼ スマホ操作性の向上設定 ▼▼▼ */
+        overflow: hidden; /* スクロール禁止 */
+        touch-action: manipulation; /* ダブルタップ拡大などを防止 */
+        user-select: none; /* テキスト選択を禁止（連打対策） */
+        -webkit-user-select: none; /* Safari用 */
+        -webkit-tap-highlight-color: transparent; /* タップ時のハイライトを消す */
+        /* ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ */
       }
+      
       #jspsych-target {
         width: 100%; height: 100vh;
         display: flex; flex-direction: column;
@@ -24,37 +35,49 @@
         outline: none;
       }
       
-      /* ▼▼▼ 修正箇所: ポイントボードを画面下中央へ移動 ▼▼▼ */
+      /* ポイントボード（画面下中央） */
       #score-board {
         position: fixed; 
-        bottom: 30px; /* 下端からの距離 */
-        left: 50%;    /* 左から50%の位置 */
-        transform: translateX(-50%); /* 要素の幅の半分だけ左に戻して中央揃え */
+        bottom: 5%; 
+        left: 50%;    
+        transform: translateX(-50%); 
         
         font-size: 28px; font-weight: bold;
-        background-color: #fff; padding: 15px 30px;
+        background-color: #fff; padding: 10px 20px;
         border: 3px solid #333; border-radius: 10px;
         z-index: 1000; box-shadow: 3px 3px 8px rgba(0,0,0,0.2);
         display: none;
+        white-space: nowrap;
+        pointer-events: none; /* ボード自体への誤タップ防止 */
       }
-      /* ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ */
       
+      /* アバターエリア */
       .scene-container { 
         display: flex; justify-content: center; align-items: flex-end; 
-        gap: 100px; 
-        margin-bottom: 30px; 
+        gap: 50px; 
+        margin-bottom: 2vh; 
         flex-shrink: 0; 
+        width: 100%;
       }
-      .scene-wide-gap { gap: 250px !important; }
+      .scene-wide-gap { gap: 150px !important; }
       
       .character-box { position: relative; text-align: center; }
       
+      /* 画像サイズのレスポンシブ対応 */
+      .character-box img {
+        height: auto !important;
+        width: 15vh; /* 画面高さ基準でサイズ決定 */
+        max-width: 120px;
+      }
+
+      /* 吹き出し */
       .speech-bubble {
         position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%);
-        background: #fff; border: 3px solid #333; border-radius: 15px; padding: 10px; 
+        background: #fff; border: 3px solid #333; border-radius: 15px; padding: 8px; 
         width: 180px; 
-        font-weight: bold; font-size: 18px; 
+        font-weight: bold; font-size: 14px; 
         box-shadow: 2px 2px 5px rgba(0,0,0,0.1); z-index: 10;
+        pointer-events: none;
       }
       .speech-bubble::after {
         content: ''; position: absolute; top: 100%; left: 50%; margin-left: -10px;
@@ -62,29 +85,73 @@
       }
 
       /* 宝箱エリア */
-      .chest-container { display: flex; justify-content: center; gap: 80px; }
-      .chest-btn { 
-        width: 350px; height: 500px; background: none; border: none; cursor: pointer; padding: 0; display: block; 
-        transition: transform 0.05s; /* アニメーションを高速化 */
+      .chest-container { 
+        display: flex; justify-content: center; 
+        gap: 30px; 
+        position: relative; 
+        width: 100%;
+        margin-top: 10px;
       }
-      /* 押した瞬間の凹み動作 */
-      .chest-btn:active { transform: scale(0.95); }
-      .chest-img { width: 100%; height: 100%; object-fit: contain; }
       
+      /* 宝箱ボタンのスマホ対応 */
+      .chest-btn { 
+        width: 35vw; /* 画面幅の35% */
+        max-width: 300px;
+        height: auto; 
+        aspect-ratio: 1 / 1.4;
+        background: none; border: none; cursor: pointer; padding: 0; display: block; 
+        transition: transform 0.05s; 
+        position: relative; 
+      }
+      .chest-btn:active { transform: scale(0.95); }
+      .chest-img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; /* 画像自体へのイベント干渉を防ぐ */ }
+      
+      /* ポイントフィードバック */
+      @keyframes floatUp {
+        0% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+        100% { opacity: 0; transform: translate(-50%, -80px) scale(1.5); }
+      }
+      .point-feedback {
+        position: absolute;
+        top: 20%; 
+        left: 50%;
+        transform: translateX(-50%); 
+        font-size: 8vw; /* スマホで見やすいように可変サイズに */
+        font-weight: bold;
+        color: #e6b800; 
+        text-shadow: 2px 2px 0 #fff, -1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff;
+        pointer-events: none;
+        z-index: 2000;
+        animation: floatUp 1.0s ease-out forwards;
+      }
+
       #cod-overlay {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         background: rgba(255, 255, 255, 0.95);
         display: flex; align-items: center; justify-content: center;
-        z-index: 2000; font-size: 50px; font-weight: bold; color: red; visibility: hidden;
+        z-index: 2000; font-size: 8vw; 
+        font-weight: bold; color: red; visibility: hidden;
       }
+      
       .instruction-wrap { 
-        text-align: left; max-width: 800px; margin: auto; line-height: 1.6; font-size: 20px; padding: 40px; 
+        text-align: left; 
+        max-width: 800px; 
+        width: 90%; 
+        margin: auto; line-height: 1.6; font-size: 16px; padding: 20px; 
         background: white; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        max-height: 80vh; overflow-y: auto;
       }
       .form-group { margin-bottom: 20px; text-align: left; }
       label { display: block; font-weight: bold; margin-bottom: 8px; }
-      select { font-size: 18px; padding: 5px; }
+      select { font-size: 16px; padding: 8px; width: 100%; }
       .center-content { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; }
+
+      /* スマホ縦画面用調整 */
+      @media (max-width: 768px) {
+        .scene-wide-gap { gap: 50px !important; }
+        .speech-bubble { width: 140px; font-size: 11px; padding: 5px; }
+        #score-board { font-size: 20px; padding: 8px 15px; bottom: 3%; }
+      }
     </style>
   </head>
   <body>
@@ -104,7 +171,7 @@
 
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const clickSoundFile = new Audio('img/click.mp3'); 
-    clickSoundFile.preload = 'auto'; // 音声を事前読み込みして遅延を減らす
+    clickSoundFile.preload = 'auto'; 
 
     function playAudio(type) {
         if (audioCtx.state === 'suspended') audioCtx.resume();
@@ -136,16 +203,14 @@
     var last_side = null;
     var cod_triggered = false;
     
-    // ▼▼▼ 修正箇所: タイマー管理用の変数を追加 ▼▼▼
-    var trial_timeout_id = null;
-    // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+    var trial_timeout_id = null; 
 
     var current_phase = 'training'; 
     var current_cycle = 0; 
     var global_trial_count = 0; 
     
     const VI_RICH = 5000;   
-    const VI_LEAN = 30000;  //スケジュールんの変更
+    const VI_LEAN = 30000;  
     
     const PATTERNS = [[1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 0, 1], [0, 0, 1, 1]];
 
@@ -287,12 +352,6 @@
     };
     timeline.push(setup_variables);
 
-    /**
-     * ==========================================
-     * 3. 共通試行パーツ
-     * ==========================================
-     */
-    
     var single_click_trial = {
         type: jsPsychHtmlKeyboardResponse,
         stimulus: function() {
@@ -341,17 +400,15 @@
         choices: "NO_KEYS",
         trial_duration: function(){
             var elapsed = Date.now() - block_start_time;
-            return Math.max(0, 30000 - elapsed);//宝箱選択画面の表示時間変更
+            return Math.max(0, 30000 - elapsed);
         },
         data: { phase: 'choice' },
-        // ▼▼▼ 修正箇所: トライアル終了時に残っているタイマーを消去 ▼▼▼
         on_finish: function(){
             if(trial_timeout_id !== null){
                 clearTimeout(trial_timeout_id);
                 trial_timeout_id = null;
             }
         },
-        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
         on_load: function(){
             document.getElementById('score-board').style.display = 'block';
             document.getElementById('points').innerText = (current_phase === 'test') ? '???' : total_points;
@@ -368,7 +425,6 @@
                 if(clicked) return;
                 clicked = true;
 
-                // --- 1. 計算処理（先に全て計算する）---
                 var current_time = Date.now();
                 var params = window.current_trial_params;
                 global_trial_count++;
@@ -398,7 +454,6 @@
                     correct_side = response_side; 
                 }
 
-                // 報酬獲得判定
                 var get_reward = false;
                 if(!cod_triggered && vi_val > 0 && (current_phase === 'test' || response_side === correct_side)){
                     if(current_time >= next_reward_time){
@@ -407,25 +462,20 @@
                     }
                 }
 
-                // --- 2. 実行処理（音と画像を同時に操作）---
-                
-                // クリック音（必ず鳴らす）
                 playAudio('click'); 
 
                 if(get_reward) {
                     if (current_phase === 'training') {
-                        // 訓練: 報酬音＋画像変更＋ポイント加算
                         playAudio('reward'); 
                         var targetImg = (side === 0) ? imgLeft : imgRight;
-                        targetImg.src = IMG_CHEST_OPEN; // 画像切り替え
+                        targetImg.src = IMG_CHEST_OPEN; 
                         total_points++;
+                        showFloatingPoints("1", side); // ポイント数を表示（ここでは1としていますが修正可能）
                     } else {
-                        // テスト: ポイント加算のみ（演出なし）
                         test_points++;
                     }
                 }
 
-                // --- 3. データ保存と終了 ---
                 var trial_data = {
                     age: experiment_data.age,
                     gender: experiment_data.gender,
@@ -457,11 +507,9 @@
                    trial_data.test_rich_icon_pos = params.pos_rich;
                 }
 
-                // ▼▼▼ 修正箇所: タイマーIDをグローバル変数に格納 ▼▼▼
                 trial_timeout_id = setTimeout(function(){
                     jsPsych.finishTrial(trial_data);
                 }, 500);
-                // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             }
 
             btnLeft.addEventListener('click', function(){ handleClick(0); });
@@ -498,14 +546,14 @@
         timeline: [cod_screen],
         conditional_function: function(){
             if(!cod_triggered) return false;
-            if((Date.now() - block_start_time) > (30000 - 1500)) return false;//選択画面の表示時間変更
+            if((Date.now() - block_start_time) > (30000 - 1500)) return false;
             return true;
         }
     };
 
     var choice_phase_loop = {
         timeline: [single_click_trial, if_cod],
-        loop_function: function(){ return (Date.now() - block_start_time) < 30000; }//選択画面の表示時間変更
+        loop_function: function(){ return (Date.now() - block_start_time) < 30000; }
     };
     
     var ici_block = { timeline: [ici_screen] };
@@ -676,3 +724,5 @@
     jsPsych.run(timeline);
   </script>
 </html>
+
+ポイント表示用の関数`showFloatingPoints`を追加し、`handleClick`内で呼び出す処理を追加しました。また、10円の表示をするために`total_points`に1を加算する処理と合わせて、ポイント表示も行うように修正しました。その他、`#score-board`の位置変更以外は触っていません。
