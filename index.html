@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Treasure Chest Experiment (Score Position Fix)</title>
+    <script src="https://unpkg.com/jspsych@7.3.4"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-html-form@1.0.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-call-function@1.1.3"></script>
+    
+    <link href="https://unpkg.com/jspsych@7.3.4/css/jspsych.css" rel="stylesheet" type="text/css" />
+    <style>
+      body { 
+        background-color: #f0f0f0; 
+        color: #333; 
+        font-family: "Helvetica Neue", Arial, sans-serif;
+        margin: 0; padding: 0;
+        overflow: hidden; 
+      }
+      #jspsych-target {
+        width: 100%; height: 100vh;
+        display: flex; flex-direction: column;
+        justify-content: center; align-items: center;
+        outline: none;
+      }
+      
+      /* ▼▼▼ 修正箇所: ポイントボードを画面下中央へ移動 ▼▼▼ */
+      #score-board {
+        position: fixed; 
+        bottom: 30px; /* 下端からの距離 */
+        left: 50%;    /* 左から50%の位置 */
+        transform: translateX(-50%); /* 要素の幅の半分だけ左に戻して中央揃え */
+        
+        font-size: 28px; font-weight: bold;
+        background-color: #fff; padding: 15px 30px;
+        border: 3px solid #333; border-radius: 10px;
+        z-index: 1000; box-shadow: 3px 3px 8px rgba(0,0,0,0.2);
+        display: none;
+      }
+      /* ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ */
+      
+      .scene-container { 
+        display: flex; justify-content: center; align-items: flex-end; 
+        gap: 100px; 
+        margin-bottom: 30px; 
+        flex-shrink: 0; 
+      }
+      .scene-wide-gap { gap: 250px !important; }
+      
+      .character-box { position: relative; text-align: center; }
+      
+      .speech-bubble {
+        position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%);
+        background: #fff; border: 3px solid #333; border-radius: 15px; padding: 10px; 
+        width: 180px; 
+        font-weight: bold; font-size: 18px; 
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.1); z-index: 10;
+      }
+      .speech-bubble::after {
+        content: ''; position: absolute; top: 100%; left: 50%; margin-left: -10px;
+        border-width: 10px; border-style: solid; border-color: #333 transparent transparent transparent;
+      }
+
+      /* 宝箱エリア */
+      .chest-container { display: flex; justify-content: center; gap: 80px; }
+      .chest-btn { 
+        width: 350px; height: 500px; background: none; border: none; cursor: pointer; padding: 0; display: block; 
+        transition: transform 0.05s; /* アニメーションを高速化 */
+      }
+      /* 押した瞬間の凹み動作 */
+      .chest-btn:active { transform: scale(0.95); }
+      .chest-img { width: 100%; height: 100%; object-fit: contain; }
+      
+      #cod-overlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(255, 255, 255, 0.95);
+        display: flex; align-items: center; justify-content: center;
+        z-index: 2000; font-size: 50px; font-weight: bold; color: red; visibility: hidden;
+      }
+      .instruction-wrap { 
+        text-align: left; max-width: 800px; margin: auto; line-height: 1.6; font-size: 20px; padding: 40px; 
+        background: white; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+      }
+      .form-group { margin-bottom: 20px; text-align: left; }
+      label { display: block; font-weight: bold; margin-bottom: 8px; }
+      select { font-size: 18px; padding: 5px; }
+      .center-content { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="score-board">ポイント: <span id="points">0</span></div>
+    <div id="cod-overlay">待機中</div>
+    <div id="jspsych-target"></div>
+  </body>
+  <script>
+    const IMG_BLUE_SRC = 'img/blue_guy.png';
+    const IMG_YELLOW_SRC = 'img/yellow_guy.png';
+    const IMG_CHEST_CLOSED = 'img/chest.png';
+    const IMG_CHEST_OPEN = 'img/chestopn.png';
+
+    function getImgHtml(src, height=250) {
+        return `<img src="${src}" style="height:${height}px; width:auto; object-fit:contain;" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"><div style="display:none; height:${height}px; width:${height}px; background:#ccc; line-height:${height}px;">画像なし</div>`;
+    }
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const clickSoundFile = new Audio('img/click.mp3'); 
+    clickSoundFile.preload = 'auto'; // 音声を事前読み込みして遅延を減らす
+
+    function playAudio(type) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        if (type === 'click') {
+            clickSoundFile.currentTime = 0;
+            clickSoundFile.play().catch(e => console.log(e));
+        } else if (type === 'reward') {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            const now = audioCtx.currentTime;
+            osc.frequency.setValueAtTime(1200, now);
+            osc.frequency.setValueAtTime(1800, now + 0.1);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.4);
+            osc.start(now);
+            osc.stop(now + 0.4);
+        }
+    }
+
+    var total_points = 0;
+    var test_points = 0;
+    var experiment_data = {};
+    var experiment_start_timestamp = Date.now();
+    
+    var block_start_time = 0;
+    var next_reward_time = 0;
+    var last_side = null;
+    var cod_triggered = false;
+    
+    // ▼▼▼ 修正箇所: タイマー管理用の変数を追加 ▼▼▼
+    var trial_timeout_id = null;
+    // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+    var current_phase = 'training'; 
+    var current_cycle = 0; 
+    var global_trial_count = 0; 
+    
+    const VI_RICH = 5000;   
+    const VI_LEAN = 30000;  //スケジュールんの変更
+    
+    const PATTERNS = [[1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 0, 1], [0, 0, 1, 1]];
+
+    function getRandomPattern() { return PATTERNS[Math.floor(Math.random() * PATTERNS.length)]; }
+    function getNextInterval(mean_ms) {
+        if (mean_ms === 0) return 99999999;
+        var min = mean_ms * 0.5;
+        var max = mean_ms * 1.5;
+        return Math.floor(Math.random() * (max - min) + min);
+    }
+
+    function getFormattedDate() {
+        const d = new Date();
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const hours = String(d.getHours()).padStart(2, '0');
+        const minutes = String(d.getMinutes()).padStart(2, '0');
+        const seconds = String(d.getSeconds()).padStart(2, '0');
+        return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
+    }
+
+    var jsPsych = initJsPsych({
+      display_element: 'jspsych-target',
+      on_finish: function() {
+        var filename = 'experiment_data_' + getFormattedDate() + '.csv';
+        jsPsych.data.addProperties({
+            final_test_points: test_points
+        });
+        jsPsych.data.get().localSave('csv', filename);
+
+        var gas_url = "https://script.google.com/macros/s/AKfycbykd-eMNuaI-uCtydJpg0UTmdQFnRWQMZ5-dAP7-lFiVLJUOTCljw-qfLJQ4YhOFL7_Rw/exec"; 
+        var csv_data = jsPsych.data.get().csv();
+
+        fetch(gas_url, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain" },
+          body: JSON.stringify({ file_name: filename, file_data: csv_data })
+        })
+        .then(response => response.text())
+        .then(data => alert("データ保存完了。ブラウザを閉じてください。"))
+        .catch(error => alert("保存エラー。ダウンロードされたCSVを確認してください。"));
+      }
+    });
+
+    var timeline = [];
+
+    var demographics = {
+        type: jsPsychSurveyHtmlForm,
+        html: `
+            <div class="instruction-wrap">
+                <h3>基本情報の入力</h3>
+                <div class="form-group">
+                    <label>年齢年代</label>
+                    <select name="age" required>
+                        <option value="" disabled selected>選択してください</option>
+                        <option value="10s">10代</option>
+                        <option value="20s">20代</option>
+                        <option value="30s">30代</option>
+                        <option value="40s">40代</option>
+                        <option value="50s">50代</option>
+                        <option value="60s">60代</option>
+                        <option value="70s">70代以上</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>性別</label>
+                    <select name="gender" required>
+                        <option value="" disabled selected>選択してください</option>
+                        <option value="male">男性</option>
+                        <option value="female">女性</option>
+                        <option value="other">その他</option>
+                        <option value="no_answer">回答しない</option>
+                    </select>
+                </div>
+            </div>
+        `,
+        button_label: '次へ',
+        on_finish: function(data){
+            experiment_data.age = data.response.age;
+            experiment_data.gender = data.response.gender;
+        }
+    };
+    timeline.push(demographics);
+
+    var consent = {
+        type: jsPsychHtmlButtonResponse,
+        stimulus: `
+            <div class="instruction-wrap">
+                <h3>研究への参加の同意</h3>
+                <p>実験の所要時間は約10分です。参加は任意であり、いつでも中断できます。</p>
+                <p>同意しますか？</p>
+            </div>
+        `,
+        choices: ['同意しない', '同意する'],
+        on_finish: function(data){
+            if(data.response === 0){
+                jsPsych.endExperiment("同意が得られなかったため終了します。");
+            } else {
+                experiment_data.consent = true;
+            }
+        }
+    };
+    timeline.push(consent);
+
+    var instructions = {
+        type: jsPsychHtmlButtonResponse,
+        stimulus: `
+            <div class="instruction-wrap">
+                <h3>教示</h3>
+                <p>宝探しゲームにようこそ。</p>
+                <br>
+                <p>このゲームでは、画面上の２つの宝箱をクリックすることでお金に換えられるポイントを獲得できます。<br>
+                    1つの宝箱は画面の左側に、もう1つは右側に表示されます。<br>
+                    宝箱を開けるたびに10円相当のポイントを獲得できます。<br>
+                    各宝箱は独立して動作します。つまり一方の宝箱の動作は他方に一切依存せず影響も与えません。</p>
+                <p>両方の宝箱を開けるターンが訪れる前に、2人の異なる人物が登場します。その人物に注目してください。<br>
+                    彼らはゲームに関するヒントを提供します。</p>
+                <br>
+                <p>できるだけ多くのポイントを獲得してください。</p>
+                <br>
+                <p>実験終了時、獲得金額が画面に表示されます。</p>
+                <p>まず練習を行います。練習の後、本番を開始します。</p>
+                <p>問題がなければ「練習開始」ボタンをクリックしてください。</p>
+            </div>
+        `,
+        choices: ['練習開始'],
+    };
+    timeline.push(instructions);
+
+    var setup_variables = {
+        type: jsPsychCallFunction,
+        func: function(){
+            var blue_is_rich = Math.random() < 0.5;
+            experiment_data.rich_color = blue_is_rich ? 'blue' : 'yellow';
+            experiment_data.rich_pattern = getRandomPattern();
+            experiment_data.lean_pattern_training = getRandomPattern();
+        }
+    };
+    timeline.push(setup_variables);
+
+    /**
+     * ==========================================
+     * 3. 共通試行パーツ
+     * ==========================================
+     */
+    
+    var single_click_trial = {
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: function() {
+            var params = window.current_trial_params;
+            var avatarHtml = '';
+
+            if (current_phase === 'training') {
+                avatarHtml = `
+                    <div class="scene-container">
+                        <div class="character-box">
+                            <div class="speech-bubble">${params.instruction_text}</div>
+                            ${getImgHtml(params.img_src, 150)}
+                        </div>
+                    </div>`;
+            } else {
+                var img_rich = getImgHtml(params.rich_color==='blue' ? IMG_BLUE_SRC : IMG_YELLOW_SRC, 150);
+                var img_lean = getImgHtml(params.lean_color==='blue' ? IMG_BLUE_SRC : IMG_YELLOW_SRC, 150);
+
+                var left_guy = (params.pos_rich === 'left') ? 
+                    { html: img_rich, text: params.rich_text } : { html: img_lean, text: params.lean_text };
+                var right_guy = (params.pos_rich === 'left') ? 
+                    { html: img_lean, text: params.lean_text } : { html: img_rich, text: params.rich_text };
+
+                avatarHtml = `
+                    <div class="scene-container scene-wide-gap">
+                        <div class="character-box">
+                            <div class="speech-bubble">${left_guy.text}</div>
+                            ${left_guy.html}
+                        </div>
+                        <div class="character-box">
+                            <div class="speech-bubble">${right_guy.text}</div>
+                            ${right_guy.html}
+                        </div>
+                    </div>`;
+            }
+
+            var chestsHtml = `
+                <div class="chest-container">
+                    <div class="chest-btn" id="btn-left"><img src="${IMG_CHEST_CLOSED}" class="chest-img" id="img-left"></div>
+                    <div class="chest-btn" id="btn-right"><img src="${IMG_CHEST_CLOSED}" class="chest-img" id="img-right"></div>
+                </div>
+            `;
+            
+            return `<div style="transform: scale(0.9); transform-origin: center;">` + avatarHtml + chestsHtml + `</div>`;
+        },
+        choices: "NO_KEYS",
+        trial_duration: function(){
+            var elapsed = Date.now() - block_start_time;
+            return Math.max(0, 30000 - elapsed);//宝箱選択画面の表示時間変更
+        },
+        data: { phase: 'choice' },
+        // ▼▼▼ 修正箇所: トライアル終了時に残っているタイマーを消去 ▼▼▼
+        on_finish: function(){
+            if(trial_timeout_id !== null){
+                clearTimeout(trial_timeout_id);
+                trial_timeout_id = null;
+            }
+        },
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+        on_load: function(){
+            document.getElementById('score-board').style.display = 'block';
+            document.getElementById('points').innerText = (current_phase === 'test') ? '???' : total_points;
+
+            var btnLeft = document.getElementById('btn-left');
+            var btnRight = document.getElementById('btn-right');
+            var imgLeft = document.getElementById('img-left');
+            var imgRight = document.getElementById('img-right');
+            
+            var clicked = false;
+            var stimulus_onset_time = Date.now();
+
+            function handleClick(side) {
+                if(clicked) return;
+                clicked = true;
+
+                // --- 1. 計算処理（先に全て計算する）---
+                var current_time = Date.now();
+                var params = window.current_trial_params;
+                global_trial_count++;
+
+                var response_side = side; 
+                var rt = current_time - stimulus_onset_time;
+
+                cod_triggered = false;
+                if(last_side !== null && last_side !== response_side){
+                    cod_triggered = true;
+                }
+                last_side = response_side;
+
+                var vi_val = 0;
+                var correct_side = -1;
+
+                if (current_phase === 'training') {
+                    vi_val = params.vi_current;
+                    correct_side = params.correct_side;
+                } else {
+                    var rich_side_idx = (params.pos_rich === 'left') ? 0 : 1;
+                    if(response_side === rich_side_idx) {
+                        vi_val = VI_RICH;
+                    } else {
+                        vi_val = VI_LEAN;
+                    }
+                    correct_side = response_side; 
+                }
+
+                // 報酬獲得判定
+                var get_reward = false;
+                if(!cod_triggered && vi_val > 0 && (current_phase === 'test' || response_side === correct_side)){
+                    if(current_time >= next_reward_time){
+                        get_reward = true;
+                        next_reward_time = current_time + getNextInterval(vi_val);
+                    }
+                }
+
+                // --- 2. 実行処理（音と画像を同時に操作）---
+                
+                // クリック音（必ず鳴らす）
+                playAudio('click'); 
+
+                if(get_reward) {
+                    if (current_phase === 'training') {
+                        // 訓練: 報酬音＋画像変更＋ポイント加算
+                        playAudio('reward'); 
+                        var targetImg = (side === 0) ? imgLeft : imgRight;
+                        targetImg.src = IMG_CHEST_OPEN; // 画像切り替え
+                        total_points++;
+                    } else {
+                        // テスト: ポイント加算のみ（演出なし）
+                        test_points++;
+                    }
+                }
+
+                // --- 3. データ保存と終了 ---
+                var trial_data = {
+                    age: experiment_data.age,
+                    gender: experiment_data.gender,
+                    consent: experiment_data.consent ? 'yes' : 'no',
+                    phase: current_phase,
+                    cycle_num: current_cycle + 1,
+                    trial_global_num: global_trial_count,
+                    condition_type: (current_phase === 'test') ? 'test' : params.type,
+                    icon_color: (current_phase === 'test') ? 'both' : params.color,
+                    instruction_side_val: (current_phase === 'test') ? 'both' : (params.correct_side === 0 ? 'left' : 'right'),
+                    response_side_label: (response_side === 0) ? 'left' : 'right',
+                    rt: rt,
+                    time_absolute: new Date().toISOString(),
+                    time_from_start: current_time - experiment_start_timestamp,
+                    reward_obtained: get_reward ? 1 : 0,
+                    points_total: total_points,
+                    points_test: test_points, 
+                    cod_hit: cod_triggered ? 1 : 0,
+                    is_compliant: (current_phase === 'test') 
+                                    ? ((response_side === params.rich_target_side_ref) ? 'match_rich' : 'match_lean')
+                                    : (response_side === correct_side ? 1 : 0),
+                    window_width: window.innerWidth,
+                    window_height: window.innerHeight
+                };
+                
+                if(current_phase === 'test') {
+                   trial_data.test_rich_instruction = (params.rich_target_side_ref === 0) ? 'left' : 'right';
+                   trial_data.test_lean_instruction = (params.rich_target_side_ref === 0) ? 'right' : 'left';
+                   trial_data.test_rich_icon_pos = params.pos_rich;
+                }
+
+                // ▼▼▼ 修正箇所: タイマーIDをグローバル変数に格納 ▼▼▼
+                trial_timeout_id = setTimeout(function(){
+                    jsPsych.finishTrial(trial_data);
+                }, 500);
+                // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+            }
+
+            btnLeft.addEventListener('click', function(){ handleClick(0); });
+            btnRight.addEventListener('click', function(){ handleClick(1); });
+        }
+    };
+
+    var cod_screen = {
+        type: jsPsychHtmlKeyboardResponse, 
+        stimulus: '', choices: "NO_KEYS", trial_duration: 1500,
+        on_start: function(){
+            document.getElementById('cod-overlay').style.visibility = 'visible';
+            document.getElementById('cod-overlay').innerText = "待機中";
+        },
+        on_finish: function(){
+            document.getElementById('cod-overlay').style.visibility = 'hidden';
+            cod_triggered = false; 
+        }
+    };
+
+    var ici_screen = {
+        type: jsPsychHtmlKeyboardResponse, 
+        stimulus: '', choices: "NO_KEYS", trial_duration: 5000,
+        on_start: function(){
+            document.getElementById('cod-overlay').style.visibility = 'visible';
+            document.getElementById('cod-overlay').innerText = "お待ちください";
+        },
+        on_finish: function(){
+            document.getElementById('cod-overlay').style.visibility = 'hidden';
+        }
+    };
+
+    var if_cod = {
+        timeline: [cod_screen],
+        conditional_function: function(){
+            if(!cod_triggered) return false;
+            if((Date.now() - block_start_time) > (30000 - 1500)) return false;//選択画面の表示時間変更
+            return true;
+        }
+    };
+
+    var choice_phase_loop = {
+        timeline: [single_click_trial, if_cod],
+        loop_function: function(){ return (Date.now() - block_start_time) < 30000; }//選択画面の表示時間変更
+    };
+    
+    var ici_block = { timeline: [ici_screen] };
+
+
+    /**
+     * ==========================================
+     * 4. 訓練フェーズ構築
+     * ==========================================
+     */
+    var get_training_timeline_vars = function() {
+        var vars = [];
+        var rich_color = experiment_data.rich_color;
+        var lean_color = (rich_color === 'blue') ? 'yellow' : 'blue';
+        
+        for(var cycle=0; cycle<4; cycle++){
+            var rich_target = experiment_data.rich_pattern[cycle];
+            var lean_target = experiment_data.lean_pattern_training[cycle];
+
+            var rich_trial = {
+                type: 'rich',
+                color: rich_color,
+                img_src: (rich_color==='blue') ? IMG_BLUE_SRC : IMG_YELLOW_SRC,
+                instruction_text: (rich_target===0) ? '「左」の宝箱を押せ' : '「右」の宝箱を押せ',
+                correct_side: rich_target,
+                vi_current: VI_RICH,
+                cycle_id: cycle
+            };
+            var lean_trial = {
+                type: 'lean',
+                color: lean_color,
+                img_src: (lean_color==='blue') ? IMG_BLUE_SRC : IMG_YELLOW_SRC,
+                instruction_text: (lean_target===0) ? '「左」の宝箱を押せ' : '「右」の宝箱を押せ',
+                correct_side: lean_target,
+                vi_current: VI_LEAN,
+                cycle_id: cycle
+            };
+            if(Math.random() < 0.5){ vars.push(rich_trial, lean_trial); } 
+            else { vars.push(lean_trial, rich_trial); }
+        }
+        return vars;
+    };
+
+    var trial_index = 0;
+    var training_vars_cache = null;
+
+    var training_cue = {
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: function(){
+            var trial_data = training_vars_cache[trial_index];
+            return `<div class="scene-container"><div class="character-box"><div class="speech-bubble">${trial_data.instruction_text}</div>${getImgHtml(trial_data.img_src, 300)}</div></div>`;
+        },
+        choices: "NO_KEYS", trial_duration: 5000,
+        on_start: function(){
+            var trial_data = training_vars_cache[trial_index];
+            block_start_time = Date.now();
+            last_side = null;
+            cod_triggered = false;
+            current_phase = 'training';
+            current_cycle = trial_data.cycle_id; 
+            
+            window.current_trial_params = trial_data;
+            next_reward_time = Date.now() + getNextInterval(trial_data.vi_current);
+            document.getElementById('score-board').style.display = 'block';
+        }
+    };
+
+    var training_controller = {
+        timeline: [training_cue, choice_phase_loop, ici_block],
+        loop_function: function(){
+            trial_index++;
+            if(trial_index < 8) return true; 
+            return false;
+        },
+        on_timeline_start: function(){
+            if(!training_vars_cache) {
+                training_vars_cache = get_training_timeline_vars();
+                trial_index = 0;
+            }
+        }
+    };
+    timeline.push(training_controller);
+
+    /**
+     * ==========================================
+     * 5. テストフェーズ構築
+     * ==========================================
+     */
+    var transition_screen = {
+        type: jsPsychHtmlButtonResponse,
+        stimulus: `<div class="instruction-wrap"><h3>本番</h3><p>ここからはヒントを与える人物が2人同時に現れます。また獲得したポイント数は表示されません。</p><br></div>`,
+        choices: ['次へ'],
+        on_start: function(){ trial_index = 0; current_phase = 'test'; }
+    };
+    timeline.push(transition_screen);
+
+    var get_test_vars = function(){
+        var vars = [];
+        var rich_color = experiment_data.rich_color;
+        
+        for(var cycle=0; cycle<4; cycle++){
+            var rich_target = experiment_data.rich_pattern[cycle];
+            var lean_target = (rich_target === 0) ? 1 : 0;
+            var pos_rich = (Math.random() < 0.5) ? 'left' : 'right';
+
+            vars.push({
+                rich_color: rich_color,
+                rich_text: (rich_target===0) ? '「左」を押せ' : '「右」を押せ',
+                lean_color: (rich_color==='blue' ? 'yellow' : 'blue'),
+                lean_text: (lean_target===0) ? '「左」を押せ' : '「右」を押せ',
+                pos_rich: pos_rich,
+                // データ保存用に参照データを保持
+                rich_target_side_ref: rich_target, 
+                cycle_id: cycle
+            });
+        }
+        return vars;
+    };
+    
+    var test_vars_cache = null;
+    var test_cue = {
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: function(){
+            if(!test_vars_cache) test_vars_cache = get_test_vars();
+            var d = test_vars_cache[trial_index];
+            var img_rich = getImgHtml(d.rich_color==='blue' ? IMG_BLUE_SRC : IMG_YELLOW_SRC, 250);
+            var img_lean = getImgHtml(d.lean_color==='blue' ? IMG_BLUE_SRC : IMG_YELLOW_SRC, 250);
+            
+            var left_guy = (d.pos_rich === 'left') ? { html: img_rich, text: d.rich_text } : { html: img_lean, text: d.lean_text };
+            var right_guy = (d.pos_rich === 'left') ? { html: img_lean, text: d.lean_text } : { html: img_rich, text: d.rich_text };
+
+            return `<div class="scene-container scene-wide-gap"><div class="character-box"><div class="speech-bubble">${left_guy.text}</div>${left_guy.html}</div><div class="character-box"><div class="speech-bubble">${right_guy.text}</div>${right_guy.html}</div></div><p style="font-size:24px; margin-top:30px;"></p>`;
+        },
+        choices: "NO_KEYS", trial_duration: 5000,
+        on_start: function(){
+            var d = test_vars_cache[trial_index];
+            block_start_time = Date.now();
+            last_side = null;
+            cod_triggered = false;
+            current_phase = 'test';
+            current_cycle = d.cycle_id;
+            window.current_trial_params = d;
+            document.getElementById('score-board').style.display = 'none';
+        }
+    };
+    var test_controller = {
+        timeline: [test_cue, choice_phase_loop, ici_block],
+        loop_function: function(){
+            trial_index++;
+            if(trial_index < 4) return true;
+            return false;
+        }
+    };
+    timeline.push(test_controller);
+
+    var end_screen = {
+      type: jsPsychHtmlKeyboardResponse,
+      stimulus: function(){
+          var end_time = Date.now();
+          var duration_minutes = ((end_time - experiment_start_timestamp) / 60000).toFixed(1);
+          var total_money = test_points * 10;
+          return `<div class="center-content"><h2>実験終了</h2><p>ご協力ありがとうございました。</p><p>所要時間: 約${duration_minutes}分</p><p>獲得金額: <span style="font-size:32px; color:red;">${total_money}円</span></p><p>（獲得ポイント: ${total_points}）</p>
+            <br><p>スペースキーを押してデータを送信・保存してください。</p></div>`;
+      }
+    };
+    timeline.push(end_screen);
+
+    jsPsych.run(timeline);
+  </script>
+</html>
